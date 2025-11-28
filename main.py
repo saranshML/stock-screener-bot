@@ -18,6 +18,13 @@ def send_telegram_message(message):
     }
     requests.post(url, json=payload)
 
+def find_value(row, possible_names):
+    """Helper to find a value from a list of possible column names."""
+    for col in possible_names:
+        if col in row:
+            return row[col]
+    return None # Not found
+
 def get_screener_data(url):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
@@ -31,29 +38,35 @@ def get_screener_data(url):
         
         dfs = pd.read_html(response.text)
         if not dfs:
-            return "❌ No data"
+            return "❌ No data table found."
         
         df = dfs[0]
         
         screen_name = url.strip().split('/')[-2].replace('-', ' ').title()
         report_section = f"📂 *{screen_name}*\n"
         
-        # Change '5' to '10' or '15' if you want more stocks
+        # --- DEBUG: If you get N/A, this helps us see what columns exist ---
+        # Uncomment the next line if you are still stuck, it will send ALL column names to Telegram
+        # return f"DEBUG: Columns found: {', '.join(df.columns)}"
+
         for index, row in df.head(5).iterrows():
-            # 1. Basic Info
-            name = row.get('Name', 'N/A')
-            price = row.get('Current Price', row.get('Current Price', 'N/A'))
+            # 1. SMART SEARCH for Name
+            name = find_value(row, ['Name', 'Company Name', 'Stock Name']) or 'Unknown'
             
-            # 2. Fetch New Columns (Exact spelling matches Screener headers)
-            # We use .get() so it won't crash if a column is missing from one of your screens
-            rsi = row.get('RSI', 'N/A')
-            qtr_profit = row.get('Qtr Profit Var %', 'N/A')
-            fii_chg = row.get('Chg in FII Hold %', 'N/A')
+            # 2. SMART SEARCH for Price (Checks multiple variations)
+            price = find_value(row, ['CMP', 'Current Price', 'Price', 'CMP Rs.', 'Last Price'])
             
-            # 3. Format the Message
-            # Line 1: Name, Price, RSI
+            # If price is STILL missing, show the first available column so we can debug
+            if price is None:
+                 price = "N/A"
+            
+            # 3. SMART SEARCH for other columns
+            rsi = find_value(row, ['RSI', 'RSI 14', 'Relative Strength Index']) or 'N/A'
+            qtr_profit = find_value(row, ['Qtr Profit Var %', 'YOY Qtr Profit Var %', 'Qtr Profit Growth']) or 'N/A'
+            fii_chg = find_value(row, ['Chg in FII Hold %', 'Change in FII Hold %', 'FII Change']) or 'N/A'
+            
+            # 4. Format Message
             report_section += f"🔹 *{name}* | ₹{price} | RSI: {rsi}\n"
-            # Line 2: Profit Var & FII Change (Indented slightly)
             report_section += f"   └ QtrPf: {qtr_profit}% | FII: {fii_chg}%\n\n"
             
         return report_section

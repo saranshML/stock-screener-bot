@@ -45,7 +45,7 @@ def get_screener_data(url):
         report_section = f"📂 *{screen_name}*\n"
         
         # Get top 5 stocks from this screen to save space
-        for index, row in df.head(5).iterrows():
+        for index, row in df.head(10).iterrows():
             name = row.get('Name', 'N/A')
             price = row.get('CMP', row.get('Current Price', 'N/A'))
             pe = row.get('P/E', 'N/A')

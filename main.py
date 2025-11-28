@@ -33,11 +33,10 @@ def get_ai_analysis(stock_data_text):
     try:
         model = genai.GenerativeModel('gemini-2.5-pro')
         prompt = (
-            "You are a strict financial analyst. Here is a list of stocks from a screener:\n\n"
-            f"{stock_data_text}\n\n"
-            "Task: Briefly analyze the top 2 most promising stocks based on the data provided (RSI, Profit Growth, FII). "
-            "Highlight any red flags (like high RSI > 70 or negative profit). "
-            "Keep the response under 100 words. Use emojis."
+            f"Data:\n{stock_data_text}\n"
+            "Task: ID top 3 picks. Logic: High Profit%, +FII, RSI<50 and such good parameters. "
+            "Warn: RSI>65, Neg Profit. "
+            "Output: Dense, technical, no articles/filler. No emojis. Max 100 words."
         )
         response = model.generate_content(prompt)
         return f"\n🤖 **AI Analyst Insights:**\n{response.text}"

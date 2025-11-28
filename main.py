@@ -42,7 +42,7 @@ def get_screener_data(url):
         for index, row in df.head(5).iterrows():
             # 1. Basic Info
             name = row.get('Name', 'N/A')
-            price = row.get('CMP', row.get('Current Price', 'N/A'))
+            price = row.get('Current Price', row.get('Current Price', 'N/A'))
             
             # 2. Fetch New Columns (Exact spelling matches Screener headers)
             # We use .get() so it won't crash if a column is missing from one of your screens

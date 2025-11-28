@@ -5,6 +5,7 @@ import google.generativeai as genai
 import feedparser
 import urllib.parse
 from bs4 import BeautifulSoup
+from collections import Counter # <-- NEW: The tool that counts duplicates
 
 # --- CONFIGURATION ---
 BOT_TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
@@ -48,7 +49,6 @@ def get_stock_news(stock_name):
 
 def get_ai_analysis(stock_data_text):
     try:
-        # Tries to use the standard free model
         model = genai.GenerativeModel('gemini-2.5-pro')
         prompt = (
             f"DATA:\n{stock_data_text}\n"
@@ -69,31 +69,29 @@ def get_screener_data(url):
         "Cookie": SCREENER_COOKIE
     }
     
+    # We create a list to track stock names for this specific screen
+    found_stocks = [] 
+
     try:
         response = requests.get(url.strip(), headers=headers)
         if response.status_code != 200:
-            return f"❌ Error: {response.status_code}", ""
+            return f"❌ Error: {response.status_code}", "", []
         
-        # 1. Parse Table Data (Pandas)
+        # 1. Parse Table
         dfs = pd.read_html(response.text)
         if not dfs:
-            return "❌ No data table found.", ""
+            return "❌ No data table found.", "", []
         df = dfs[0]
         df.columns = [clean_column_name(c) for c in df.columns]
 
-        # 2. Parse EXACT Links (BeautifulSoup)
-        # This matches the 'href' hidden in the HTML to the row in the table
+        # 2. Parse Links
         soup = BeautifulSoup(response.text, 'html.parser')
         stock_links = []
-        
-        # We target the rows in the table body
         table_rows = soup.select("table tbody tr")
         
         for row in table_rows:
-            # Find the anchor tag that points to '/company/...'
             link_tag = row.select_one("a[href*='/company/']")
             if link_tag:
-                # Constructs: https://www.screener.in/company/INDOTECH/
                 full_link = f"https://www.screener.in{link_tag['href']}"
                 stock_links.append(full_link)
             else:
@@ -113,16 +111,15 @@ def get_screener_data(url):
             qtr_profit = row.get('Qtr Profit Var %', 'N/A')
             fii_chg = row.get('Chg in FII Hold %', 'N/A')
             
-            # Feature A: News (First stock only)
+            # Add to list for Confluence Check
+            found_stocks.append(name)
+
             if index == 0:
                 first_stock_news = get_stock_news(name)
 
-            # Feature D: REAL Clickable Links
-            # We use the scraped link if available, otherwise fallback to search
             if index < len(stock_links) and stock_links[index]:
                 link = stock_links[index]
             else:
-                # Fallback: Search URL if scraping failed for some reason
                 safe_name = urllib.parse.quote(name)
                 link = f"https://www.screener.in/search/?query={safe_name}"
             
@@ -133,21 +130,45 @@ def get_screener_data(url):
             
         report_section += first_stock_news + "\n"
             
-        return report_section, raw_data_for_ai
+        return report_section, raw_data_for_ai, found_stocks
 
     except Exception as e:
-        return f"❌ Error on {url}: {str(e)}\n", ""
+        return f"❌ Error on {url}: {str(e)}\n", "", []
 
 if __name__ == "__main__":
-    final_message = "📊 **Daily Market Watch**\n\n"
+    final_report_body = ""
     combined_ai_data = ""
+    all_found_stocks = []
     
+    # 1. Fetch data from all screens
     for link in SCREENER_URLS:
         if len(link.strip()) > 5:
-            text_output, ai_input = get_screener_data(link)
-            final_message += text_output
-            final_message += "------------------\n"
+            text_output, ai_input, stock_list = get_screener_data(link)
+            final_report_body += text_output
+            final_report_body += "------------------\n"
             combined_ai_data += ai_input
+            all_found_stocks.extend(stock_list)
+    
+    # 2. FEATURE: CONFLUENCE DETECTOR (Super Pick)
+    # We count how many times each stock appears across ALL your screens
+    stock_counts = Counter(all_found_stocks)
+    super_picks = [stock for stock, count in stock_counts.items() if count > 1]
+    
+    header_message = "📊 **Daily Market Watch**\n\n"
+    
+    if super_picks:
+        header_message += "🚨 **SUPER PICKS DETECTED** 🚨\n"
+        header_message += "_(Stocks appearing in multiple screens)_\n"
+        for pick in super_picks:
+            count = stock_counts[pick]
+            # Create a simple search link for the super pick
+            safe_name = urllib.parse.quote(pick)
+            link = f"https://www.screener.in/search/?query={safe_name}"
+            header_message += f"🔥 [{pick}]({link}) found in {count} lists!\n"
+        header_message += "\n" + "="*15 + "\n\n"
+
+    # 3. Assemble Final Message
+    final_message = header_message + final_report_body
     
     if combined_ai_data and GEMINI_API_KEY:
         ai_insight = get_ai_analysis(combined_ai_data)

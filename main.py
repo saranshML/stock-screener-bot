@@ -2,16 +2,22 @@ import requests
 import pandas as pd
 import os
 import google.generativeai as genai
+import feedparser
+import urllib.parse
 
 # --- CONFIGURATION ---
 BOT_TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
 CHAT_ID = os.environ['TELEGRAM_CHAT_ID']
 SCREENER_COOKIE = os.environ['SCREENER_COOKIE']
 SCREENER_URLS = os.environ['SCREENER_URL'].split(',')
-GEMINI_API_KEY = os.environ['GEMINI_API_KEY']
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
 # --- SETUP AI ---
-genai.configure(api_key=GEMINI_API_KEY)
+if GEMINI_API_KEY:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+    except:
+        pass
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -26,20 +32,39 @@ def send_telegram_message(message):
 def clean_column_name(col_name):
     return col_name.replace('\xa0', ' ').replace('  ', ' ').strip()
 
-def get_ai_analysis(stock_data_text):
+def get_stock_news(stock_name):
     """
-    Sends the raw stock list to Gemini and asks for a summary.
+    Fetches the latest news headline from Google News RSS for the top stock.
     """
     try:
-        model = genai.GenerativeModel('gemini-2.5-pro')
+        encoded_name = urllib.parse.quote(stock_name)
+        # Search for 'StockName share price india news'
+        rss_url = f"https://news.google.com/rss/search?q={encoded_name}+share+price+india+news&hl=en-IN&gl=IN&ceid=IN:en"
+        feed = feedparser.parse(rss_url)
+        
+        if feed.entries:
+            title = feed.entries[0].title
+            link = feed.entries[0].link
+            # Clean up title (remove publisher name often found at end)
+            title = title.split(' - ')[0]
+            return f"\n📰 **News on {stock_name}:**\n[{title}]({link})"
+        return ""
+    except:
+        return ""
+
+def get_ai_analysis(stock_data_text):
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
         prompt = (
-            f"Data:\n{stock_data_text}\n"
-            "Task: ID top 3 picks. Logic: High Profit%, +FII, RSI<50 and such good parameters. "
-            "Warn: RSI>65, Neg Profit. "
-            "Output: Dense, technical, no articles/filler. No emojis. Max 100 words."
+            f"DATA:\n{stock_data_text}\n"
+            "TASK: Pick top 2 best stocks. CRITERIA: High QtrPf, RSI < 70, +FII. "
+            "WARN: If RSI > 75 or Neg Profit. "
+            "OUTPUT RULES: No emoji. No intro/outro words. "
+            "Format: STOCK: [Name] | WHY: [Data]. "
+            "Max 40 words total."
         )
         response = model.generate_content(prompt)
-        return f"\n🤖 **AI Analyst Insights:**\n{response.text}"
+        return f"\n🤖 **AI:**\n{response.text}"
     except Exception as e:
         return f"\n⚠️ AI Error: {str(e)}"
 
@@ -64,8 +89,8 @@ def get_screener_data(url):
         screen_name = url.strip().split('/')[-2].replace('-', ' ').title()
         report_section = f"📂 *{screen_name}*\n"
         
-        # String to hold data for the AI to read
         raw_data_for_ai = f"Screen: {screen_name}\n"
+        first_stock_news = ""
 
         for index, row in df.head(10).iterrows():
             name = row.get('Name', 'N/A')
@@ -74,20 +99,30 @@ def get_screener_data(url):
             qtr_profit = row.get('Qtr Profit Var %', 'N/A')
             fii_chg = row.get('Chg in FII Hold %', 'N/A')
             
-            # Format for Telegram
-            report_section += f"🔹 *{name}* | ₹{price}\n"
+            # --- FEATURE A: NEWS FLASH (Only for the very first stock) ---
+            if index == 0:
+                first_stock_news = get_stock_news(name)
+
+            # --- FEATURE D: CLICKABLE LINKS ---
+            # Create a Screener link: https://www.screener.in/company/SYMBOL/
+            # We guess the symbol is the first word of the name (Works 95% of the time)
+            safe_symbol = name.split()[0] 
+            link = f"https://www.screener.in/company/{safe_symbol}/"
+            
+            # Markdown format: [Text](URL)
+            report_section += f"🔹 [{name}]({link}) | ₹{price}\n"
             report_section += f"   RSI: {rsi} | QtrPf: {qtr_profit}% | FII: {fii_chg}%\n\n"
             
-            # Format for AI (Raw text)
+            # Data for AI
             raw_data_for_ai += f"{name}: Price {price}, RSI {rsi}, Profit Var {qtr_profit}%, FII Chg {fii_chg}%\n"
+            
+        # Append the news at the very end of this screen's section
+        report_section += first_stock_news + "\n"
             
         return report_section, raw_data_for_ai
 
     except Exception as e:
-        error_msg = str(e)
-        if "403" in error_msg or "404" in error_msg:
-             return "🚨 **ALERT: Your Screener Cookie has expired!**\n\nPlease log in to Screener.in, copy a new cookie, and update your GitHub Secret immediately."
-        return f"❌ Error on {url}: {error_msg}\n"
+        return f"❌ Error on {url}: {str(e)}\n", ""
 
 if __name__ == "__main__":
     final_message = "📊 **Daily Market Watch**\n\n"
@@ -100,8 +135,8 @@ if __name__ == "__main__":
             final_message += "------------------\n"
             combined_ai_data += ai_input
     
-    # --- Trigger AI Analysis ---
-    if combined_ai_data:
+    # Run AI Analysis if data exists
+    if combined_ai_data and GEMINI_API_KEY:
         ai_insight = get_ai_analysis(combined_ai_data)
         final_message += ai_insight
     

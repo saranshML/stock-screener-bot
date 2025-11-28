@@ -42,7 +42,7 @@ def get_ai_analysis(stock_data_text):
         response = model.generate_content(prompt)
         return f"\n🤖 **AI Analyst Insights:**\n{response.text}"
     except Exception as e:
-        return "\n(AI Analysis failed temporarily)"
+        return f"\n⚠️ AI Error: {str(e)}"
 
 def get_screener_data(url):
     headers = {

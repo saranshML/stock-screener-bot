@@ -84,7 +84,10 @@ def get_screener_data(url):
         return report_section, raw_data_for_ai
 
     except Exception as e:
-        return f"❌ Error on {url}: {str(e)}\n", ""
+        error_msg = str(e)
+        if "403" in error_msg or "404" in error_msg:
+             return "🚨 **ALERT: Your Screener Cookie has expired!**\n\nPlease log in to Screener.in, copy a new cookie, and update your GitHub Secret immediately."
+        return f"❌ Error on {url}: {error_msg}\n"
 
 if __name__ == "__main__":
     final_message = "📊 **Daily Market Watch**\n\n"

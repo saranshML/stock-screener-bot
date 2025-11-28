@@ -4,6 +4,7 @@ import os
 import google.generativeai as genai
 import feedparser
 import urllib.parse
+from bs4 import BeautifulSoup
 
 # --- CONFIGURATION ---
 BOT_TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
@@ -33,20 +34,13 @@ def clean_column_name(col_name):
     return col_name.replace('\xa0', ' ').replace('  ', ' ').strip()
 
 def get_stock_news(stock_name):
-    """
-    Fetches the latest news headline from Google News RSS for the top stock.
-    """
     try:
         encoded_name = urllib.parse.quote(stock_name)
-        # Search for 'StockName share price india news'
         rss_url = f"https://news.google.com/rss/search?q={encoded_name}+share+price+india+news&hl=en-IN&gl=IN&ceid=IN:en"
         feed = feedparser.parse(rss_url)
-        
         if feed.entries:
-            title = feed.entries[0].title
+            title = feed.entries[0].title.split(' - ')[0]
             link = feed.entries[0].link
-            # Clean up title (remove publisher name often found at end)
-            title = title.split(' - ')[0]
             return f"\n📰 **News on {stock_name}:**\n[{title}]({link})"
         return ""
     except:
@@ -79,12 +73,27 @@ def get_screener_data(url):
         if response.status_code != 200:
             return f"❌ Error: {response.status_code}", ""
         
+        # 1. Parse Table Data (Pandas)
         dfs = pd.read_html(response.text)
         if not dfs:
             return "❌ No data table found.", ""
-        
         df = dfs[0]
         df.columns = [clean_column_name(c) for c in df.columns]
+
+        # 2. Parse Links (BeautifulSoup) - THE FIX
+        soup = BeautifulSoup(response.text, 'html.parser')
+        # Find all links that look like stock pages (/company/...)
+        # We target the table rows to ensure we get them in the exact same order as the DataFrame
+        stock_links = []
+        table_rows = soup.select("table tbody tr")
+        
+        for row in table_rows:
+            # Find the 'a' tag inside the row that points to a company page
+            link_tag = row.select_one("a[href*='/company/']")
+            if link_tag:
+                stock_links.append(f"https://www.screener.in{link_tag['href']}")
+            else:
+                stock_links.append(None) # Keep list aligned if a link is missing
         
         screen_name = url.strip().split('/')[-2].replace('-', ' ').title()
         report_section = f"📂 *{screen_name}*\n"
@@ -92,6 +101,7 @@ def get_screener_data(url):
         raw_data_for_ai = f"Screen: {screen_name}\n"
         first_stock_news = ""
 
+        # Loop through top 10 stocks
         for index, row in df.head(10).iterrows():
             name = row.get('Name', 'N/A')
             price = row.get('CMP Rs.', row.get('Current Price', 'N/A'))
@@ -99,24 +109,24 @@ def get_screener_data(url):
             qtr_profit = row.get('Qtr Profit Var %', 'N/A')
             fii_chg = row.get('Chg in FII Hold %', 'N/A')
             
-            # --- FEATURE A: NEWS FLASH (Only for the very first stock) ---
+            # Feature A: News
             if index == 0:
                 first_stock_news = get_stock_news(name)
 
-            # --- FEATURE D: CLICKABLE LINKS ---
-            # Create a Screener link: https://www.screener.in/company/SYMBOL/
-            # We guess the symbol is the first word of the name (Works 95% of the time)
-            safe_symbol = name.split()[0] 
-            link = f"https://www.screener.in/company/{safe_symbol}/"
+            # Feature D: REAL Clickable Links
+            # We grab the link from our scraped list using the same index
+            if index < len(stock_links) and stock_links[index]:
+                link = stock_links[index]
+            else:
+                # Fallback to search if something goes wrong
+                safe_name = urllib.parse.quote(name)
+                link = f"https://www.screener.in/search/?query={safe_name}"
             
-            # Markdown format: [Text](URL)
             report_section += f"🔹 [{name}]({link}) | ₹{price}\n"
             report_section += f"   RSI: {rsi} | QtrPf: {qtr_profit}% | FII: {fii_chg}%\n\n"
             
-            # Data for AI
             raw_data_for_ai += f"{name}: Price {price}, RSI {rsi}, Profit Var {qtr_profit}%, FII Chg {fii_chg}%\n"
             
-        # Append the news at the very end of this screen's section
         report_section += first_stock_news + "\n"
             
         return report_section, raw_data_for_ai
@@ -135,7 +145,6 @@ if __name__ == "__main__":
             final_message += "------------------\n"
             combined_ai_data += ai_input
     
-    # Run AI Analysis if data exists
     if combined_ai_data and GEMINI_API_KEY:
         ai_insight = get_ai_analysis(combined_ai_data)
         final_message += ai_insight

@@ -48,7 +48,8 @@ def get_stock_news(stock_name):
 
 def get_ai_analysis(stock_data_text):
     try:
-        model = genai.GenerativeModel('gemini-2.5-pro')
+        # Tries to use the standard free model
+        model = genai.GenerativeModel('gemini-1.5-flash')
         prompt = (
             f"DATA:\n{stock_data_text}\n"
             "TASK: Pick top 2 best stocks. CRITERIA: High QtrPf, RSI < 70, +FII. "
@@ -80,20 +81,23 @@ def get_screener_data(url):
         df = dfs[0]
         df.columns = [clean_column_name(c) for c in df.columns]
 
-        # 2. Parse Links (BeautifulSoup) - THE FIX
+        # 2. Parse EXACT Links (BeautifulSoup)
+        # This matches the 'href' hidden in the HTML to the row in the table
         soup = BeautifulSoup(response.text, 'html.parser')
-        # Find all links that look like stock pages (/company/...)
-        # We target the table rows to ensure we get them in the exact same order as the DataFrame
         stock_links = []
+        
+        # We target the rows in the table body
         table_rows = soup.select("table tbody tr")
         
         for row in table_rows:
-            # Find the 'a' tag inside the row that points to a company page
+            # Find the anchor tag that points to '/company/...'
             link_tag = row.select_one("a[href*='/company/']")
             if link_tag:
-                stock_links.append(f"https://www.screener.in{link_tag['href']}")
+                # Constructs: https://www.screener.in/company/INDOTECH/
+                full_link = f"https://www.screener.in{link_tag['href']}"
+                stock_links.append(full_link)
             else:
-                stock_links.append(None) # Keep list aligned if a link is missing
+                stock_links.append(None)
         
         screen_name = url.strip().split('/')[-2].replace('-', ' ').title()
         report_section = f"📂 *{screen_name}*\n"
@@ -109,16 +113,16 @@ def get_screener_data(url):
             qtr_profit = row.get('Qtr Profit Var %', 'N/A')
             fii_chg = row.get('Chg in FII Hold %', 'N/A')
             
-            # Feature A: News
+            # Feature A: News (First stock only)
             if index == 0:
                 first_stock_news = get_stock_news(name)
 
             # Feature D: REAL Clickable Links
-            # We grab the link from our scraped list using the same index
+            # We use the scraped link if available, otherwise fallback to search
             if index < len(stock_links) and stock_links[index]:
                 link = stock_links[index]
             else:
-                # Fallback to search if something goes wrong
+                # Fallback: Search URL if scraping failed for some reason
                 safe_name = urllib.parse.quote(name)
                 link = f"https://www.screener.in/search/?query={safe_name}"
             

@@ -3,59 +3,65 @@ import pandas as pd
 import os
 import time
 
-# --- CONFIGURATION (Loaded from GitHub Secrets) ---
+# --- CONFIGURATION ---
 BOT_TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
 CHAT_ID = os.environ['TELEGRAM_CHAT_ID']
 SCREENER_COOKIE = os.environ['SCREENER_COOKIE']
-SCREENER_URL = os.environ['SCREENER_URL']
+# Now we expect a comma-separated string of URLs
+SCREENER_URLS = os.environ['SCREENER_URL'].split(',')
 
 def send_telegram_message(message):
+    # Telegram has a limit of ~4096 chars. If message is too long, we might need to split it,
+    # but for 3 screens, this simple version usually works fine.
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
         "text": message,
-        "parse_mode": "Markdown"
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
     }
     requests.post(url, json=payload)
 
-def get_screener_data():
+def get_screener_data(url):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
         "Cookie": SCREENER_COOKIE
     }
     
-    response = requests.get(SCREENER_URL, headers=headers)
-    
-    if response.status_code != 200:
-        return f"❌ Error fetching Screener data. Status: {response.status_code}"
-    
     try:
-        # Read the HTML table into a DataFrame
+        response = requests.get(url.strip(), headers=headers)
+        if response.status_code != 200:
+            return f"❌ Error: {response.status_code}"
+        
         dfs = pd.read_html(response.text)
         if not dfs:
-            return "❌ No tables found on the Screener page."
+            return "❌ No data"
         
-        # Usually the main stock table is the first one
         df = dfs[0]
         
-        # Clean up: Keep top 10 stocks and relevant columns
-        # Adjust 'Name' and 'CMP' if columns are named differently in your screen
-        result_msg = f"📊 **Daily Stock Screener Report**\n\n"
+        # Extract a readable name from the URL (e.g., 'coffee-can-portfolio')
+        screen_name = url.strip().split('/')[-2].replace('-', ' ').title()
         
-        for index, row in df.head(10).iterrows():
-            # Customize these column names based on your actual Screen columns
+        report_section = f"📂 *{screen_name}*\n"
+        
+        # Get top 5 stocks from this screen to save space
+        for index, row in df.head(5).iterrows():
             name = row.get('Name', 'N/A')
             price = row.get('CMP', row.get('Current Price', 'N/A'))
             pe = row.get('P/E', 'N/A')
+            report_section += f"🔹 {name} | ₹{price} | PE: {pe}\n"
             
-            result_msg += f"🔹 *{name}* | ₹{price} | PE: {pe}\n"
-            
-        result_msg += f"\n[View Full Screen]({SCREENER_URL})"
-        return result_msg
+        return report_section + "\n"
 
     except Exception as e:
-        return f"❌ Error parsing data: {str(e)}"
+        return f"❌ Error on {url}: {str(e)}\n"
 
 if __name__ == "__main__":
-    msg = get_screener_data()
-    send_telegram_message(msg)
+    final_message = "📊 **Daily Market Watch**\n\n"
+    
+    for link in SCREENER_URLS:
+        if len(link.strip()) > 5: # simple check to ignore empty strings
+            final_message += get_screener_data(link)
+            final_message += "------------------\n"
+    
+    send_telegram_message(final_message)

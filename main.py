@@ -31,7 +31,7 @@ def get_ai_analysis(stock_data_text):
     Sends the raw stock list to Gemini and asks for a summary.
     """
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = (
             "You are a strict financial analyst. Here is a list of stocks from a screener:\n\n"
             f"{stock_data_text}\n\n"

@@ -2,8 +2,10 @@ name: Watchlist News Monitor
 
 on:
   schedule:
-    - cron: '0 */2 * * *' # Runs every 2 hours
-  workflow_dispatch: # Manual trigger
+    # Runs at minute 30 of every hour from 3 AM to 9 AM UTC
+    # This equals: 9:00 AM, 10:00 AM ... until 3:00 PM IST
+    - cron: '30 3-9 * * *'
+  workflow_dispatch: # Keeps the manual run button
 
 jobs:
   check-news:

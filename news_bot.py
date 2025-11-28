@@ -17,13 +17,8 @@ SCREENER_COOKIE = os.environ['SCREENER_COOKIE']
 ALERT_KEYWORDS = [
     # Positive/Neutral
     "result", "dividend", "split", "bonus", "buyback", 
-    "acquisition", "merger", "deal", "order", "approved",
-    "allotment", "expansion", "profit",
-    
-    # High Concern / Negative (Added these)
-    "cessation", "resignation", "fine", "penalty", "default",
-    "fraud", "investigation", "search", "raid", "concern",
-    "disclosure", "regulation", "non-compliance", "loss"
+    "acquisition", "merger", "deal", "order", "profit", "fine", "penalty", "fraud", "investigation", "search", "raid", "concern",
+    "disclosure", "non-compliance", "loss"
 ]
 
 def send_telegram(message):

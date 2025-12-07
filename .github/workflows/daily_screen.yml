@@ -2,7 +2,8 @@ name: Daily Stock Screener
 
 on:
   schedule:
-    - cron: '30 3 * * *' # Runs at 09:00 AM IST approx
+    # 30 3 * * 1-5 means: 03:30 UTC (09:00 AM IST) on Mon, Tue, Wed, Thu, Fri
+    - cron: '30 3 * * 1-5' 
   workflow_dispatch:      # Allows manual testing button
 
 jobs:
@@ -15,7 +16,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.10'  # Updated to fix the warning
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
@@ -27,5 +28,5 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SCREENER_COOKIE: ${{ secrets.SCREENER_COOKIE }}
           SCREENER_URL: ${{ secrets.SCREENER_URL }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # <--- THIS WAS MISSING
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python main.py

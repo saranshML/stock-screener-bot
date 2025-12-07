@@ -49,7 +49,7 @@ def get_stock_news(stock_name):
 
 def get_ai_analysis(stock_data_text):
     try:
-        model = genai.GenerativeModel('gemini-2.5-pro')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = (
             f"DATA:\n{stock_data_text}\n"
             "TASK: Pick top 2 best stocks. CRITERIA: High QtrPf, RSI < 70, +FII. "

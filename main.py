@@ -72,10 +72,41 @@ def get_screener_data(url):
     # We create a list to track stock names for this specific screen
     found_stocks = [] 
 
+    def build_candidate_urls(raw_url):
+        """Try a few URL variants because Screener links are often pasted in mixed formats."""
+        base = raw_url.strip()
+        if not base:
+            return []
+
+        candidates = [base]
+        if base.startswith("http://"):
+            candidates.append("https://" + base[len("http://"):])
+
+        if "screener.in" in base and "www.screener.in" not in base:
+            candidates.append(base.replace("screener.in", "www.screener.in", 1))
+
+        if not base.endswith("/") and "?" not in base and "#" not in base:
+            candidates.append(base + "/")
+
+        # Keep order, remove duplicates
+        return list(dict.fromkeys(candidates))
+
     try:
-        response = requests.get(url.strip(), headers=headers)
-        if response.status_code != 200:
-            return f"❌ Error: {response.status_code}", "", []
+        response = None
+        attempted_urls = build_candidate_urls(url)
+
+        for candidate in attempted_urls:
+            response = requests.get(candidate, headers=headers, timeout=30)
+            if response.status_code == 200:
+                break
+
+        if response is None or response.status_code != 200:
+            attempted_text = " | ".join(attempted_urls) if attempted_urls else url.strip()
+            code = response.status_code if response is not None else "N/A"
+            return f"❌ Error: {code} ({attempted_text})", "", []
+
+        if "Login" in response.text and "Register" in response.text:
+            return "❌ Error: Screener cookie expired. Update SCREENER_COOKIE secret.", "", []
         
         # 1. Parse Table
         dfs = pd.read_html(response.text)
@@ -97,7 +128,14 @@ def get_screener_data(url):
             else:
                 stock_links.append(None)
         
-        screen_name = url.strip().split('/')[-2].replace('-', ' ').title()
+        parsed_url = urllib.parse.urlparse(response.url)
+        path_parts = [part for part in parsed_url.path.split('/') if part]
+        if len(path_parts) >= 2:
+            screen_name = path_parts[-1].replace('-', ' ').title()
+        elif path_parts:
+            screen_name = path_parts[-1].replace('-', ' ').title()
+        else:
+            screen_name = "Custom Screen"
         report_section = f"📂 *{screen_name}*\n"
         
         raw_data_for_ai = f"Screen: {screen_name}\n"
